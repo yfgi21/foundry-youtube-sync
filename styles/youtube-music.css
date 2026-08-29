@@ -1,0 +1,110 @@
+.alpha-ytmusic-panel {
+  margin: 0.35rem 0.5rem 0.55rem;
+  padding: 0.5rem;
+  border: 1px solid var(--color-border-light-tertiary, rgba(255,255,255,0.18));
+  border-radius: 5px;
+  background: var(--color-bg-option, rgba(0,0,0,0.18));
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.08) inset;
+}
+
+.alpha-ytmusic-header,
+.alpha-ytmusic-meta,
+.alpha-ytmusic-transport,
+.alpha-ytmusic-url-row,
+.alpha-ytmusic-time-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.alpha-ytmusic-header {
+  justify-content: space-between;
+  min-height: 1.6rem;
+  margin-bottom: 0.4rem;
+}
+
+.alpha-ytmusic-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.alpha-ytmusic-status {
+  flex: 0 0 auto;
+  font-size: 0.75rem;
+  opacity: 0.75;
+}
+
+.alpha-ytmusic-url-row input {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.alpha-ytmusic-url-row button,
+.alpha-ytmusic-transport button {
+  flex: 0 0 auto;
+  min-width: 2rem;
+}
+
+.alpha-ytmusic-transport {
+  justify-content: center;
+  margin: 0.4rem 0 0.25rem;
+}
+
+.alpha-ytmusic-transport button {
+  width: 2.2rem;
+  height: 2rem;
+  padding: 0;
+}
+
+.alpha-ytmusic-time-row {
+  gap: 0.45rem;
+}
+
+.alpha-ytmusic-time-row input[type="range"] {
+  min-width: 0;
+  flex: 1 1 auto;
+  margin: 0;
+}
+
+.alpha-ytmusic-time {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.75rem;
+  opacity: 0.82;
+}
+
+.alpha-ytmusic-player-wrap {
+  margin-top: 0.45rem;
+  min-width: 200px;
+  min-height: 200px;
+  width: 100%;
+  height: 200px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: #000;
+}
+
+.alpha-ytmusic-player-wrap iframe,
+.alpha-ytmusic-player-host {
+  display: block;
+  width: 100% !important;
+  height: 200px !important;
+  min-width: 200px;
+  min-height: 200px;
+  border: 0;
+}
+
+.alpha-ytmusic-panel.alpha-ytmusic-empty .alpha-ytmusic-player-wrap,
+.alpha-ytmusic-panel.alpha-ytmusic-empty .alpha-ytmusic-transport,
+.alpha-ytmusic-panel.alpha-ytmusic-empty .alpha-ytmusic-time-row {
+  display: none;
+}
+
+
+.alpha-ytmusic-panel button:disabled,
+.alpha-ytmusic-panel input:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
