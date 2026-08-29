@@ -28,7 +28,7 @@ jobs:
           : > scripts/main.js
           for f in .build/main.part*.b64; do
             echo "Decoding $f"
-            tr -d '[:space:]' < "$f" | base64 --decode >> scripts/main.js
+            tr -d '[:space:]' < "$f" | base64 --decode --ignore-garbage >> scripts/main.js
           done
           echo "3e775d0ce351a3cc3508d8f7dabd5f3b7ecd0305dbacf1ab7baa0e401b97f7ee  scripts/main.js" | sha256sum -c -
           rm -rf .build
