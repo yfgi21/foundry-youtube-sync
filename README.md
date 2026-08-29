@@ -2,6 +2,10 @@
 
 A lightweight Foundry VTT v14 module that embeds YouTube playback directly into the **Playlists** sidebar and keeps GM-controlled playback synchronized across connected clients.
 
+<p align="center">
+  <img src="docs/images/playlists-integration.jpg" alt="Foundry YouTube Sync integrated into the Playlists sidebar" width="300">
+</p>
+
 ## Features
 
 - Paste a YouTube URL directly into the Foundry Playlists sidebar.
