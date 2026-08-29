@@ -1,0 +1,57 @@
+name: Build Foundry Release
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'module.json'
+      - 'scripts/**'
+      - 'styles/**'
+      - 'lang/**'
+      - 'README.md'
+      - '.github/workflows/release.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read module version
+        id: module
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./module.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Build module ZIP
+        shell: bash
+        run: |
+          rm -rf dist
+          mkdir -p dist/foundry-youtube-sync
+          cp module.json README.md dist/foundry-youtube-sync/
+          cp -R scripts styles lang dist/foundry-youtube-sync/
+          cd dist
+          zip -r foundry-youtube-sync.zip foundry-youtube-sync
+          cp ../module.json module.json
+
+      - name: Create or update GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.module.outputs.tag }}
+          VERSION: ${{ steps.module.outputs.version }}
+        shell: bash
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/foundry-youtube-sync.zip dist/module.json --clobber
+          else
+            gh release create "$TAG" dist/foundry-youtube-sync.zip dist/module.json \
+              --title "Foundry YouTube Sync $TAG" \
+              --notes "Foundry YouTube Sync $VERSION. See README.md for features, installation instructions, and YouTube limitations."
+          fi
