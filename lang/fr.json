@@ -1,0 +1,18 @@
+{
+  "ALPHAYT.Title": "YouTube Music",
+  "ALPHAYT.UrlPlaceholder": "Coller un lien YouTube...",
+  "ALPHAYT.Load": "Charger",
+  "ALPHAYT.Play": "Lecture",
+  "ALPHAYT.Pause": "Pause",
+  "ALPHAYT.Stop": "Arreter",
+  "ALPHAYT.Back": "Reculer de 10 secondes",
+  "ALPHAYT.Forward": "Avancer de 10 secondes",
+  "ALPHAYT.NoTrack": "Aucune video YouTube active",
+  "ALPHAYT.InvalidUrl": "Lien YouTube invalide ou non pris en charge.",
+  "ALPHAYT.GMOnly": "Seul un MJ peut piloter la lecture YouTube.",
+  "ALPHAYT.PlayerError": "Le lecteur YouTube a signale une erreur ({code}).",
+  "ALPHAYT.AutoplayBlocked": "Le navigateur attend une interaction utilisateur avant d'autoriser le son YouTube.",
+  "ALPHAYT.StatusPlaying": "Lecture",
+  "ALPHAYT.StatusPaused": "Pause",
+  "ALPHAYT.StatusStopped": "Arrete"
+}
