@@ -1,0 +1,18 @@
+{
+  "ALPHAYT.Title": "YouTube Music",
+  "ALPHAYT.UrlPlaceholder": "Paste a YouTube link...",
+  "ALPHAYT.Load": "Load",
+  "ALPHAYT.Play": "Play",
+  "ALPHAYT.Pause": "Pause",
+  "ALPHAYT.Stop": "Stop",
+  "ALPHAYT.Back": "Back 10 seconds",
+  "ALPHAYT.Forward": "Forward 10 seconds",
+  "ALPHAYT.NoTrack": "No active YouTube video",
+  "ALPHAYT.InvalidUrl": "Invalid or unsupported YouTube URL.",
+  "ALPHAYT.GMOnly": "Only a GM can control YouTube playback.",
+  "ALPHAYT.PlayerError": "The YouTube player reported an error ({code}).",
+  "ALPHAYT.AutoplayBlocked": "The browser is waiting for a user interaction before allowing YouTube audio.",
+  "ALPHAYT.StatusPlaying": "Playing",
+  "ALPHAYT.StatusPaused": "Paused",
+  "ALPHAYT.StatusStopped": "Stopped"
+}
