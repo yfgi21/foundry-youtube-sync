@@ -3,6 +3,9 @@ const SOCKET = `module.${MODULE_ID}`;
 const SETTING_STATE = "playbackState";
 const DRIFT_THRESHOLD = 1.15;
 const CORRECTION_INTERVAL_MS = 2500;
+const JOIN_SYNC_DELAYS_MS = [350, 1200, 2600];
+const RECOVERABLE_PLAYER_ERRORS = new Set([101, 150]);
+const MAX_PLAYER_RECOVERY_ATTEMPTS = 2;
 
 const DEFAULT_STATE = Object.freeze({
   revision: 0,
@@ -31,6 +34,12 @@ class FoundryYouTubeSync {
     this.uiTimer = null;
     this.gestureListener = null;
     this.lastAutoplayNotice = 0;
+    this.joinStateResolved = Boolean(game.user?.isGM);
+    this.joinStateRequestTimers = [];
+    this.joinSyncTimers = [];
+    this.recoveryTimer = null;
+    this.recoveryKey = "";
+    this.recoveryAttempts = 0;
   }
 
   async initialize() {
@@ -55,6 +64,41 @@ class FoundryYouTubeSync {
     if (directory?.rendered && directory.element) this.mount(directory.element);
 
     this.uiTimer = window.setInterval(() => this.tick(), 500);
+
+    // A newly connected player asks the active GM for the live in-memory state.
+    // This avoids relying only on the persisted world setting and never changes
+    // playback for clients that are already connected.
+    if (!game.user?.isGM) this.requestLiveState();
+  }
+
+  requestLiveState() {
+    if (game.user?.isGM) return;
+    this.clearJoinStateRequests();
+
+    const send = () => {
+      if (this.joinStateResolved || !game.socket) return;
+      game.socket.emit(SOCKET, {
+        type: "request-state",
+        userId: game.user.id
+      });
+    };
+
+    send();
+    for (const delay of [900, 2200]) {
+      this.joinStateRequestTimers.push(window.setTimeout(send, delay));
+    }
+  }
+
+  clearJoinStateRequests() {
+    for (const timer of this.joinStateRequestTimers) window.clearTimeout(timer);
+    this.joinStateRequestTimers = [];
+  }
+
+  isPrimaryActiveGM() {
+    const activeGMs = Array.from(game.users ?? [])
+      .filter((user) => user.active && user.isGM)
+      .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+    return activeGMs[0]?.id === game.user?.id;
   }
 
   handleUserGesture(event) {
@@ -121,11 +165,35 @@ class FoundryYouTubeSync {
   }
 
   onSocket(message) {
+    if (message?.type === "request-state") {
+      if (!game.user?.isGM || !this.isPrimaryActiveGM()) return;
+      const requester = game.users?.get(message.userId);
+      if (!requester?.active) return;
+
+      game.socket.emit(SOCKET, {
+        type: "state",
+        userId: game.user.id,
+        targetUserId: message.userId,
+        reason: "join-sync",
+        state: this.state
+      });
+      return;
+    }
+
     if (message?.type !== "state" || !this.isAuthorizedSocket(message)) return;
+    if (message.targetUserId && message.targetUserId !== game.user?.id) return;
+
     const next = this.normalizeState(message.state);
     if (next.revision < this.state.revision) return;
+
+    const joinSync = message.reason === "join-sync" && message.targetUserId === game.user?.id;
+    if (joinSync) {
+      this.joinStateResolved = true;
+      this.clearJoinStateRequests();
+    }
+
     this.state = next;
-    this.applyState(next, { force: true });
+    this.applyState(next, { force: true, joinSync });
     this.updateUi();
   }
 
@@ -199,6 +267,8 @@ class FoundryYouTubeSync {
         this.player = null;
         this.playerReady = false;
         this.loadedVideoId = "";
+        this.clearJoinSynchronization();
+        this.resetPlayerRecovery();
       }
     }
 
@@ -400,7 +470,6 @@ class FoundryYouTubeSync {
       this.player = new YT.Player(this.playerHost, {
         width: "100%",
         height: "200",
-        videoId: this.state.videoId,
         playerVars: {
           autoplay: 0,
           controls: 1,
@@ -422,9 +491,15 @@ class FoundryYouTubeSync {
 
   onPlayerReady() {
     this.playerReady = true;
-    this.loadedVideoId = this.player.getVideoData?.().video_id || this.state.videoId;
+    this.loadedVideoId = this.player.getVideoData?.().video_id || "";
     this.applyVolume();
-    this.applyState(this.state, { force: true });
+
+    // Do not preload the persisted video in the YT.Player constructor. A joining
+    // client first creates a clean player, then loads the current video directly
+    // at the shared server-time position. This avoids the initial load -> seek
+    // race that could surface as a transient error 150 for late joiners.
+    this.applyState(this.state, { force: false, joinSync: !game.user?.isGM });
+    if (!game.user?.isGM) this.scheduleJoinSynchronization(this.state.videoId, this.state.revision);
     this.updateUi();
   }
 
@@ -434,6 +509,10 @@ class FoundryYouTubeSync {
     if (state === window.YT.PlayerState.ENDED && game.user?.isGM && this.isMainVideoLoaded()) {
       this.commit({ status: "stopped", position: this.getDuration() || 0 });
       return;
+    }
+
+    if (state === window.YT.PlayerState.PLAYING && this.isMainVideoLoaded()) {
+      this.resetPlayerRecovery(this.state.videoId);
     }
 
     if (!game.user?.isGM || this.applyingState || !this.isMainVideoLoaded()) return;
@@ -449,8 +528,102 @@ class FoundryYouTubeSync {
   }
 
   onPlayerError(event) {
-    console.warn(`${MODULE_ID} | YouTube player error`, event.data);
-    ui.notifications.warn(game.i18n.format("ALPHAYT.PlayerError", { code: event.data }));
+    const code = Number(event.data);
+    console.warn(`${MODULE_ID} | YouTube player error`, code);
+
+    // 101/150 normally means embedding is denied. A late-join initialization can
+    // however surface the error transiently before a subsequent synchronized
+    // seek/load succeeds. Retry only on this client and never emit a new shared
+    // state, so users already listening are not interrupted.
+    if (RECOVERABLE_PLAYER_ERRORS.has(code) && this.schedulePlayerRecovery(code)) return;
+
+    ui.notifications.warn(game.i18n.format("ALPHAYT.PlayerError", { code }));
+  }
+
+  resetPlayerRecovery(videoId = "") {
+    if (this.recoveryTimer) window.clearTimeout(this.recoveryTimer);
+    this.recoveryTimer = null;
+    this.recoveryKey = videoId ? `${videoId}:${this.state.revision}` : "";
+    this.recoveryAttempts = 0;
+  }
+
+  schedulePlayerRecovery(code) {
+    if (!this.playerReady || !this.player || !this.state.videoId) return false;
+
+    const key = `${this.state.videoId}:${this.state.revision}`;
+    if (this.recoveryKey !== key) {
+      if (this.recoveryTimer) window.clearTimeout(this.recoveryTimer);
+      this.recoveryTimer = null;
+      this.recoveryKey = key;
+      this.recoveryAttempts = 0;
+    }
+
+    if (this.recoveryAttempts >= MAX_PLAYER_RECOVERY_ATTEMPTS) return false;
+    this.recoveryAttempts += 1;
+    const attempt = this.recoveryAttempts;
+    const delay = attempt === 1 ? 350 : 1100;
+
+    if (this.recoveryTimer) window.clearTimeout(this.recoveryTimer);
+    this.recoveryTimer = window.setTimeout(() => {
+      this.recoveryTimer = null;
+      this.recoverCurrentStateLocally({ reload: attempt > 1, errorCode: code });
+    }, delay);
+    return true;
+  }
+
+  recoverCurrentStateLocally({ reload = false, errorCode = null } = {}) {
+    if (!this.playerReady || !this.player || !this.state.videoId) return;
+
+    const videoId = this.state.videoId;
+    const target = this.expectedPosition();
+    const status = this.state.status;
+
+    this.applyingState = true;
+    try {
+      const activeVideo = this.player.getVideoData?.().video_id || this.loadedVideoId;
+      const playerState = this.player.getPlayerState?.();
+      const buffering = window.YT && playerState === window.YT.PlayerState.BUFFERING;
+
+      if (reload || activeVideo !== videoId) {
+        if (status === "playing") this.player.loadVideoById({ videoId, startSeconds: target });
+        else this.player.cueVideoById({ videoId, startSeconds: target });
+        this.loadedVideoId = videoId;
+      } else if (!buffering) {
+        const current = Number(this.player.getCurrentTime?.());
+        if (!Number.isFinite(current) || Math.abs(current - target) > DRIFT_THRESHOLD) {
+          this.player.seekTo(target, true);
+        }
+
+        if (status === "playing") this.player.playVideo?.();
+        else if (status === "paused") this.player.pauseVideo?.();
+        else this.player.stopVideo?.();
+      }
+
+      this.applyVolume();
+      if (errorCode != null) console.debug(`${MODULE_ID} | Local recovery after player error ${errorCode}, attempt ${this.recoveryAttempts}`);
+    } catch (error) {
+      console.debug(`${MODULE_ID} | Local player recovery deferred`, error);
+    } finally {
+      window.setTimeout(() => { this.applyingState = false; }, 200);
+    }
+  }
+
+  clearJoinSynchronization() {
+    for (const timer of this.joinSyncTimers) window.clearTimeout(timer);
+    this.joinSyncTimers = [];
+  }
+
+  scheduleJoinSynchronization(videoId = this.state.videoId, revision = this.state.revision) {
+    this.clearJoinSynchronization();
+    if (!videoId) return;
+
+    for (const delay of JOIN_SYNC_DELAYS_MS) {
+      const timer = window.setTimeout(() => {
+        if (this.state.videoId !== videoId || this.state.revision < revision) return;
+        this.recoverCurrentStateLocally();
+      }, delay);
+      this.joinSyncTimers.push(timer);
+    }
   }
 
   isMainVideoLoaded() {
@@ -459,7 +632,7 @@ class FoundryYouTubeSync {
     return !videoId || videoId === this.state.videoId;
   }
 
-  async applyState(state = this.state, { force = false } = {}) {
+  async applyState(state = this.state, { force = false, joinSync = false } = {}) {
     if (!this.panel || !state.videoId) {
       this.updateUi();
       return;
@@ -493,6 +666,7 @@ class FoundryYouTubeSync {
       }
 
       this.applyVolume();
+      if (joinSync) this.scheduleJoinSynchronization(state.videoId, state.revision);
     } catch (error) {
       console.warn(`${MODULE_ID} | Failed to apply synchronized state`, error);
     } finally {

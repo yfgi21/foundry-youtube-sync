@@ -2,7 +2,7 @@
   "id": "foundry-youtube-sync",
   "title": "Foundry YouTube Sync",
   "description": "Synchronized YouTube playback integrated directly into the Foundry VTT Playlists sidebar, with GM controls, shared timeline synchronization, drift correction, reconnect recovery, and native Music volume support.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "authors": [
     {
       "name": "yfgi21",

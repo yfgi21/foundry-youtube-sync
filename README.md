@@ -51,6 +51,14 @@ await game.modules.get("foundry-youtube-sync").api.stop();
 
 ## Changelog
 
+### 0.1.2
+
+- Added a live GM state handshake for players joining while music is already playing.
+- Late joiners now load directly at the authoritative server-time position without restarting playback for connected users.
+- Added local-only catch-up passes after player initialization to correct startup drift.
+- Added targeted recovery for transient YouTube player errors 101/150 during late-join initialization.
+- Recovery never broadcasts a new playback state and therefore does not interrupt the GM or other players.
+
 ### 0.1.1
 
 - Fixed micro-buffering when right-clicking or panning the Foundry canvas.
