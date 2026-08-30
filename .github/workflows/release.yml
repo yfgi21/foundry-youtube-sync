@@ -1,5 +1,6 @@
 name: Build Foundry Release
 
+# Builds the installable Foundry package from the current main branch.
 on:
   workflow_dispatch:
   push:
