@@ -1,0 +1,150 @@
+@@ -449,8 +528,102 @@
+   }
+ 
+   onPlayerError(event) {
+-    console.warn(`${MODULE_ID} | YouTube player error`, event.data);
+-    ui.notifications.warn(game.i18n.format("ALPHAYT.PlayerError", { code: event.data }));
++    const code = Number(event.data);
++    console.warn(`${MODULE_ID} | YouTube player error`, code);
++
++    // 101/150 normally means embedding is denied. A late-join initialization can
++    // however surface the error transiently before a subsequent synchronized
++    // seek/load succeeds. Retry only on this client and never emit a new shared
++    // state, so users already listening are not interrupted.
++    if (RECOVERABLE_PLAYER_ERRORS.has(code) && this.schedulePlayerRecovery(code)) return;
++
++    ui.notifications.warn(game.i18n.format("ALPHAYT.PlayerError", { code }));
++  }
++
++  resetPlayerRecovery(videoId = "") {
++    if (this.recoveryTimer) window.clearTimeout(this.recoveryTimer);
++    this.recoveryTimer = null;
++    this.recoveryKey = videoId ? `${videoId}:${this.state.revision}` : "";
++    this.recoveryAttempts = 0;
++  }
++
++  schedulePlayerRecovery(code) {
++    if (!this.playerReady || !this.player || !this.state.videoId) return false;
++
++    const key = `${this.state.videoId}:${this.state.revision}`;
++    if (this.recoveryKey !== key) {
++      if (this.recoveryTimer) window.clearTimeout(this.recoveryTimer);
++      this.recoveryTimer = null;
++      this.recoveryKey = key;
++      this.recoveryAttempts = 0;
++    }
++
++    if (this.recoveryAttempts >= MAX_PLAYER_RECOVERY_ATTEMPTS) return false;
++    this.recoveryAttempts += 1;
++    const attempt = this.recoveryAttempts;
++    const delay = attempt === 1 ? 350 : 1100;
++
++    if (this.recoveryTimer) window.clearTimeout(this.recoveryTimer);
++    this.recoveryTimer = window.setTimeout(() => {
++      this.recoveryTimer = null;
++      this.recoverCurrentStateLocally({ reload: attempt > 1, errorCode: code });
++    }, delay);
++    return true;
++  }
++
++  recoverCurrentStateLocally({ reload = false, errorCode = null } = {}) {
++    if (!this.playerReady || !this.player || !this.state.videoId) return;
++
++    const videoId = this.state.videoId;
++    const target = this.expectedPosition();
++    const status = this.state.status;
++
++    this.applyingState = true;
++    try {
++      const activeVideo = this.player.getVideoData?.().video_id || this.loadedVideoId;
++      const playerState = this.player.getPlayerState?.();
++      const buffering = window.YT && playerState === window.YT.PlayerState.BUFFERING;
++
++      if (reload || activeVideo !== videoId) {
++        if (status === "playing") this.player.loadVideoById({ videoId, startSeconds: target });
++        else this.player.cueVideoById({ videoId, startSeconds: target });
++        this.loadedVideoId = videoId;
++      } else if (!buffering) {
++        const current = Number(this.player.getCurrentTime?.());
++        if (!Number.isFinite(current) || Math.abs(current - target) > DRIFT_THRESHOLD) {
++          this.player.seekTo(target, true);
++        }
++
++        if (status === "playing") this.player.playVideo?.();
++        else if (status === "paused") this.player.pauseVideo?.();
++        else this.player.stopVideo?.();
++      }
++
++      this.applyVolume();
++      if (errorCode != null) console.debug(`${MODULE_ID} | Local recovery after player error ${errorCode}, attempt ${this.recoveryAttempts}`);
++    } catch (error) {
++      console.debug(`${MODULE_ID} | Local player recovery deferred`, error);
++    } finally {
++      window.setTimeout(() => { this.applyingState = false; }, 200);
++    }
++  }
++
++  clearJoinSynchronization() {
++    for (const timer of this.joinSyncTimers) window.clearTimeout(timer);
++    this.joinSyncTimers = [];
++  }
++
++  scheduleJoinSynchronization(videoId = this.state.videoId, revision = this.state.revision) {
++    this.clearJoinSynchronization();
++    if (!videoId) return;
++
++    for (const delay of JOIN_SYNC_DELAYS_MS) {
++      const timer = window.setTimeout(() => {
++        if (this.state.videoId !== videoId || this.state.revision < revision) return;
++        this.recoverCurrentStateLocally();
++      }, delay);
++      this.joinSyncTimers.push(timer);
++    }
+   }
+ 
+   isMainVideoLoaded() {
+@@ -459,7 +632,7 @@
+     return !videoId || videoId === this.state.videoId;
+   }
+ 
+-  async applyState(state = this.state, { force = false } = {}) {
++  async applyState(state = this.state, { force = false, joinSync = false } = {}) {
+     if (!this.panel || !state.videoId) {
+       this.updateUi();
+       return;
+@@ -493,6 +666,7 @@
+       }
+ 
+       this.applyVolume();
++      if (joinSync) this.scheduleJoinSynchronization(state.videoId, state.revision);
+     } catch (error) {
+       console.warn(`${MODULE_ID} | Failed to apply synchronized state`, error);
+     } finally {
+--- a/module.json
++++ b/module.json
+@@ -2,7 +2,7 @@
+   "id": "foundry-youtube-sync",
+   "title": "Foundry YouTube Sync",
+   "description": "Synchronized YouTube playback integrated directly into the Foundry VTT Playlists sidebar, with GM controls, shared timeline synchronization, drift correction, reconnect recovery, and native Music volume support.",
+-  "version": "0.1.1",
++  "version": "0.1.2",
+   "authors": [
+     {
+       "name": "yfgi21",
+--- a/README.md
++++ b/README.md
+@@ -51,6 +51,14 @@
+ 
+ ## Changelog
+ 
++### 0.1.2
++
++- Added a live GM state handshake for players joining while music is already playing.
++- Late joiners now load directly at the authoritative server-time position without restarting playback for connected users.
++- Added local-only catch-up passes after player initialization to correct startup drift.
++- Added targeted recovery for transient YouTube player errors 101/150 during late-join initialization.
++- Recovery never broadcasts a new playback state and therefore does not interrupt the GM or other players.
++
+ ### 0.1.1
+ 
+ - Fixed micro-buffering when right-clicking or panning the Foundry canvas.
