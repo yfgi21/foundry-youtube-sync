@@ -1,0 +1,150 @@
+--- a/scripts/main.js
++++ b/scripts/main.js
+@@ -3,6 +3,9 @@
+ const SETTING_STATE = "playbackState";
+ const DRIFT_THRESHOLD = 1.15;
+ const CORRECTION_INTERVAL_MS = 2500;
++const JOIN_SYNC_DELAYS_MS = [350, 1200, 2600];
++const RECOVERABLE_PLAYER_ERRORS = new Set([101, 150]);
++const MAX_PLAYER_RECOVERY_ATTEMPTS = 2;
+ 
+ const DEFAULT_STATE = Object.freeze({
+   revision: 0,
+@@ -31,6 +34,12 @@
+     this.uiTimer = null;
+     this.gestureListener = null;
+     this.lastAutoplayNotice = 0;
++    this.joinStateResolved = Boolean(game.user?.isGM);
++    this.joinStateRequestTimers = [];
++    this.joinSyncTimers = [];
++    this.recoveryTimer = null;
++    this.recoveryKey = "";
++    this.recoveryAttempts = 0;
+   }
+ 
+   async initialize() {
+@@ -55,6 +64,41 @@
+     if (directory?.rendered && directory.element) this.mount(directory.element);
+ 
+     this.uiTimer = window.setInterval(() => this.tick(), 500);
++
++    // A newly connected player asks the active GM for the live in-memory state.
++    // This avoids relying only on the persisted world setting and never changes
++    // playback for clients that are already connected.
++    if (!game.user?.isGM) this.requestLiveState();
++  }
++
++  requestLiveState() {
++    if (game.user?.isGM) return;
++    this.clearJoinStateRequests();
++
++    const send = () => {
++      if (this.joinStateResolved || !game.socket) return;
++      game.socket.emit(SOCKET, {
++        type: "request-state",
++        userId: game.user.id
++      });
++    };
++
++    send();
++    for (const delay of [900, 2200]) {
++      this.joinStateRequestTimers.push(window.setTimeout(send, delay));
++    }
++  }
++
++  clearJoinStateRequests() {
++    for (const timer of this.joinStateRequestTimers) window.clearTimeout(timer);
++    this.joinStateRequestTimers = [];
++  }
++
++  isPrimaryActiveGM() {
++    const activeGMs = Array.from(game.users ?? [])
++      .filter((user) => user.active && user.isGM)
++      .sort((a, b) => String(a.id).localeCompare(String(b.id)));
++    return activeGMs[0]?.id === game.user?.id;
+   }
+ 
+   handleUserGesture(event) {
+@@ -121,11 +165,35 @@
+   }
+ 
+   onSocket(message) {
++    if (message?.type === "request-state") {
++      if (!game.user?.isGM || !this.isPrimaryActiveGM()) return;
++      const requester = game.users?.get(message.userId);
++      if (!requester?.active) return;
++
++      game.socket.emit(SOCKET, {
++        type: "state",
++        userId: game.user.id,
++        targetUserId: message.userId,
++        reason: "join-sync",
++        state: this.state
++      });
++      return;
++    }
++
+     if (message?.type !== "state" || !this.isAuthorizedSocket(message)) return;
++    if (message.targetUserId && message.targetUserId !== game.user?.id) return;
++
+     const next = this.normalizeState(message.state);
+     if (next.revision < this.state.revision) return;
++
++    const joinSync = message.reason === "join-sync" && message.targetUserId === game.user?.id;
++    if (joinSync) {
++      this.joinStateResolved = true;
++      this.clearJoinStateRequests();
++    }
++
+     this.state = next;
+-    this.applyState(next, { force: true });
++    this.applyState(next, { force: true, joinSync });
+     this.updateUi();
+   }
+ 
+@@ -199,6 +267,8 @@
+         this.player = null;
+         this.playerReady = false;
+         this.loadedVideoId = "";
++        this.clearJoinSynchronization();
++        this.resetPlayerRecovery();
+       }
+     }
+ 
+@@ -400,7 +470,6 @@
+       this.player = new YT.Player(this.playerHost, {
+         width: "100%",
+         height: "200",
+-        videoId: this.state.videoId,
+         playerVars: {
+           autoplay: 0,
+           controls: 1,
+@@ -422,9 +491,15 @@
+ 
+   onPlayerReady() {
+     this.playerReady = true;
+-    this.loadedVideoId = this.player.getVideoData?.().video_id || this.state.videoId;
++    this.loadedVideoId = this.player.getVideoData?.().video_id || "";
+     this.applyVolume();
+-    this.applyState(this.state, { force: true });
++
++    // Do not preload the persisted video in the YT.Player constructor. A joining
++    // client first creates a clean player, then loads the current video directly
++    // at the shared server-time position. This avoids the initial load -> seek
++    // race that could surface as a transient error 150 for late joiners.
++    this.applyState(this.state, { force: false, joinSync: !game.user?.isGM });
++    if (!game.user?.isGM) this.scheduleJoinSynchronization(this.state.videoId, this.state.revision);
+     this.updateUi();
+   }
+ 
+@@ -436,6 +511,10 @@
+       return;
+     }
+ 
++    if (state === window.YT.PlayerState.PLAYING && this.isMainVideoLoaded()) {
++      this.resetPlayerRecovery(this.state.videoId);
++    }
++
+     if (!game.user?.isGM || this.applyingState || !this.isMainVideoLoaded()) return;
+ 
+     // Keep the official YouTube controls usable by the GM for play/pause.
