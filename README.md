@@ -2,9 +2,7 @@
 
 A lightweight Foundry VTT v14 module that embeds YouTube playback directly into the **Playlists** sidebar and keeps GM-controlled playback synchronized across connected clients.
 
-<p align="center">
-  <img src="docs/images/playlists-integration.jpg" alt="Foundry YouTube Sync integrated into the Playlists sidebar" width="300">
-</p>
+<p align="center"><img src="docs/images/playlists-integration.jpg" alt="Foundry YouTube Sync integrated in the Playlists sidebar" width="300"></p>
 
 ## Features
 
@@ -13,6 +11,8 @@ A lightweight Foundry VTT v14 module that embeds YouTube playback directly into 
 - Shared playback timeline synchronized through Foundry sockets and `game.time.serverTime`.
 - Automatic drift correction between connected clients.
 - Playback state persistence across refreshes and reconnects.
+- Late-joining players request the live GM state and synchronize locally without restarting playback for connected players.
+- Targeted recovery for transient YouTube player errors during initialization.
 - Foundry's native **Music / Playlists** volume setting controls the local YouTube player volume.
 - Players can see the current video and timeline, while global playback controls remain GM-only.
 - Supports `youtube.com/watch`, `youtu.be`, Shorts, Live, Embed, and `t=` / `start=` timestamps.
@@ -51,23 +51,19 @@ await game.modules.get("foundry-youtube-sync").api.stop();
 
 ## Changelog
 
+### 0.1.3
+
+- Fixed a YouTube API edge case where `getVideoData()` could return `undefined` while the player was initializing or recovering.
+- Prevented `video_id` and `title` access errors from interrupting UI updates and recovery.
+- Improved resilience when YouTube reports a transient player error during initialization.
+
 ### 0.1.2
 
-- Added a live GM state handshake for players joining while music is already playing.
-- Late joiners now load directly at the authoritative server-time position without restarting playback for connected users.
-- Added local-only catch-up passes after player initialization to correct startup drift.
-- Added targeted recovery for transient YouTube player errors 101/150 during late-join initialization.
-- Recovery never broadcasts a new playback state and therefore does not interrupt the GM or other players.
+- Added late-join live state handshake and local-only recovery for newly connected clients.
+- Added targeted recovery for transient YouTube 101/150 errors without restarting playback for existing clients.
 
 ### 0.1.1
 
 - Fixed micro-buffering when right-clicking or panning the Foundry canvas.
 - User-gesture autoplay recovery no longer forces a YouTube seek on every pointer interaction.
 - Right-click canvas interactions never alter healthy YouTube playback.
-
-### 0.1.0
-
-- Initial synchronized YouTube playback implementation.
-- Native Playlists sidebar integration.
-- GM-authoritative playback controls.
-- Shared timeline, reconnect recovery, drift correction, and Foundry Music volume integration.
