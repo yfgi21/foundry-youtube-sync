@@ -2,7 +2,7 @@
 
 A lightweight Foundry VTT v14 module that embeds YouTube playback directly into the **Playlists** sidebar and keeps GM-controlled playback synchronized across connected clients.
 
-<p align="center"><img src="docs/images/playlists-integration.jpg" alt="Foundry YouTube Sync integrated in the Playlists sidebar" width="300"></p>
+<p align="center"><img src="docs/images/playlists-integration.jpg" alt="Foundry YouTube Sync integrated into the Playlists sidebar" width="300"></p>
 
 ## Features
 
@@ -10,9 +10,8 @@ A lightweight Foundry VTT v14 module that embeds YouTube playback directly into 
 - GM controls for play, pause, stop, seek, skip back 10 seconds, and skip forward 10 seconds.
 - Shared playback timeline synchronized through Foundry sockets and `game.time.serverTime`.
 - Automatic drift correction between connected clients.
+- Late-join synchronization: a player joining an already-playing session receives the live GM state and cues the video at the correct server-time position before attempting playback.
 - Playback state persistence across refreshes and reconnects.
-- Late-joining players request the live GM state and synchronize locally without restarting playback for connected players.
-- Targeted recovery for transient YouTube player errors during initialization.
 - Foundry's native **Music / Playlists** volume setting controls the local YouTube player volume.
 - Players can see the current video and timeline, while global playback controls remain GM-only.
 - Supports `youtube.com/watch`, `youtu.be`, Shorts, Live, Embed, and `t=` / `start=` timestamps.
@@ -21,6 +20,8 @@ A lightweight Foundry VTT v14 module that embeds YouTube playback directly into 
 ## YouTube limitations
 
 This module uses the official YouTube IFrame Player API. It does not block, replace, or bypass YouTube advertisements. Ads may differ between clients, so perfect synchronization cannot be guaranteed while an advertisement is playing. The module automatically corrects playback drift when normal video playback resumes.
+
+YouTube error `101` / `150` means that the video owner has disabled playback in embedded players. This is a YouTube restriction and cannot be bypassed by the module. Age-restricted or otherwise non-embeddable videos may also fail in the embedded player.
 
 The official embedded YouTube player must remain available in the Playlists panel; the module does not extract or redistribute YouTube audio.
 
@@ -51,19 +52,33 @@ await game.modules.get("foundry-youtube-sync").api.stop();
 
 ## Changelog
 
+### 0.1.4
+
+- Reworked late-join initialization to wait for the active GM's live state.
+- Late joiners now cue the current video at the calculated server-time position before attempting playback.
+- Added YouTube `widget_referrer` context to the embedded player.
+- Tightened player-state detection so an empty player is never treated as the synchronized video.
+- Improved handling and documentation of YouTube embedding errors `101` / `150`.
+
 ### 0.1.3
 
-- Fixed a YouTube API edge case where `getVideoData()` could return `undefined` while the player was initializing or recovering.
-- Prevented `video_id` and `title` access errors from interrupting UI updates and recovery.
-- Improved resilience when YouTube reports a transient player error during initialization.
+- Improved player initialization and late-join recovery.
+- Fixed unsafe video-data access during player initialization.
 
 ### 0.1.2
 
-- Added late-join live state handshake and local-only recovery for newly connected clients.
-- Added targeted recovery for transient YouTube 101/150 errors without restarting playback for existing clients.
+- Added live GM state handshake for late-joining players.
+- Added local recovery attempts for transient YouTube initialization errors.
 
 ### 0.1.1
 
 - Fixed micro-buffering when right-clicking or panning the Foundry canvas.
 - User-gesture autoplay recovery no longer forces a YouTube seek on every pointer interaction.
 - Right-click canvas interactions never alter healthy YouTube playback.
+
+### 0.1.0
+
+- Initial synchronized YouTube playback implementation.
+- Native Playlists sidebar integration.
+- GM-authoritative playback controls.
+- Shared timeline, reconnect recovery, drift correction, and Foundry Music volume integration.
